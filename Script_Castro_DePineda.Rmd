@@ -1,0 +1,242 @@
+---
+title: "AD PROJECT 2: Prediction of male body fat from body measurements"
+output: html_notebook
+---
+*Lucía De Pineda & Sonia Castro* , *Group 12*
+
+The first thing we do is load the needed libraries:
+```{r}
+library(GGally)
+library(openintro)
+library(tidyverse)
+library(factoextra)
+library(ggplot2)
+library(dplyr)
+library(factoextra)
+library(readr)
+```
+
+Now we save our dataset into a dataframe and we print the first columns to have an idea of the values for each variable:
+```{r}
+data<-read.table(text = gsub("  ", " ", readLines("data.txt")), header=TRUE, dec=".")
+head(data)
+```
+
+We check the dimension of the data:
+```{r}
+dim(data)
+```
+
+We check the correlation of the variable density with the target variable:
+```{r}
+ggpairs(data[,c(1,2)])
+```
+
+We decide to drop the variable density:
+```{r}
+data <- data[2:15]
+head(data)
+```
+
+
+# PCA
+
+```{r}
+z = cor(data)
+```
+
+```{r}
+z[lower.tri(z,diag=TRUE)]=NA  # Prepare to drop duplicates and meaningless information
+z=as.data.frame(as.table(z))  # Turn into a 3-column table
+z=na.omit(z)  # Get rid of the junk we flagged above
+z=z[order(-abs(z$Freq)),]    # Sort by highest correlation (whether +ve or -ve)
+z
+```
+The highest correlation is between Weight and Hip (0.9409). The one with highest correlations is Weight.
+
+Highest correlations with target variable Fat are Abdomen and Chest.
+```{r}
+ggpairs(data[,c(1,6:7)])
+```
+
+Then we compute the PCA for our data, without using our target variable.
+```{r}
+data2 = data[,2:14]
+data2 = scale(data2)
+data_pca = prcomp(data2)
+```
+
+We check the proportions of variability explain by the PCs:
+```{r}
+(sdev_pca=data_pca$sdev)
+(var_pca=sdev_pca^2)
+```
+```{r}
+var_total=sum(var_pca)
+var_total
+```
+```{r}
+(prop1=var_pca[1]/var_total)
+(prop2=var_pca[2]/var_total)
+(prop3=var_pca[3]/var_total)
+(prop4=var_pca[4]/var_total)
+prop1+prop2+prop3+prop4
+```
+
+Representation of the percentages:
+```{r}
+fviz_eig(data_pca)
+```
+
+We print the PCs:
+```{r}
+data_pca$rotation
+```
+
+Plot of the first four PCs:
+```{r}
+fviz_pca_var(data_pca, axes = c(1,2))
+fviz_pca_var(data_pca, axes = c(3,4))
+```
+
+Dividing category Fat into groups to see it in the biplot:
+```{r}
+hist(data$X.Fat)
+```
+
+```{r}
+(Fat.cat = cut(data$X.Fat, breaks = seq(0, 50, 10)))
+```
+
+
+```{r}
+levels(Fat.cat) = c('0','1','2','3','4')
+```
+
+```{r}
+data_cat <- data
+data_cat$Fat <- Fat.cat
+```
+
+We do the biplot:
+```{r}
+options(ggrepel.max.overlaps = 10)
+fviz_pca_biplot(data_pca, repel=TRUE, axes = c(1,2), habillage = data_cat$Fat)
+```
+
+We check the values that stand out:
+```{r}
+(val_39=data2[39,])
+t(data_pca$rotation)%*%val_39
+```
+
+
+```{r}
+(val_41=data2[41,])
+t(data_pca$rotation)%*%val_41
+```
+ 
+
+```{r}
+(val_42=data2[42,])
+t(data_pca$rotation)%*%val_42
+```
+
+
+# MDS
+
+First we compute the Euclidean distance for each pair of rows, creating the distance table $D$.
+```{r}
+D=dist(data2, method = "euclidean")
+```
+
+Then we perform MDS and we check the proportions of variance explained:
+```{r}
+mds=cmdscale(D,k=4,eig=TRUE)
+pve = mds$eig/sum(mds$eig)
+head(pve)
+```
+
+Plot of two first axes of PCA:
+```{r}
+mds<-as.data.frame(mds$points)
+ggplot(mds,aes(x=V1,
+                y=V2,
+                label=rownames(data)))+
+  geom_text(alpha=0.8,size=3,col="salmon")
+```
+
+We calculate the distance matrix of the MDS and then the residual matrix:
+```{r}
+D2=dist(mds,method="euclidean")
+res=D-D2
+as.matrix(res)
+```
+
+For reference we take the mean value of the residual matrix:
+```{r}
+mean(res)
+```
+
+Histogram of the residuals:
+```{r}
+hist(res, breaks=seq(0,5.5,0.25))
+```
+
+
+# CLUSTER
+
+### K-means
+
+First, we choose the value of k:
+```{r}
+# TWSS to choose k
+fviz_nbclust(data2, kmeans, method = "wss")
+```
+
+We choose k=4, then we run kmeans and we plot the cluster
+```{r}
+# run k-means
+km = kmeans(data2, centers= 4)
+# cluster assignment + PCA scores
+fviz_cluster(km, data2, geom = "point")
+
+```
+
+
+```{r}
+PCs = prcomp(data2)
+fviz_pca_biplot(PCs, geom = "text", habillage = as.numeric(km$cluster))
+```
+
+
+
+## Agglomerative hierarchical
+
+
+Choosing k:
+```{r}
+fviz_nbclust(data2, FUN=hcut, hc_method = "complete", method = "wss")
+```
+
+
+We choose k=5. Then we choose the linkage method and we plot the cluster assignment:
+```{r}
+D = dist(data2)
+hc = hclust(D, method = "complete")
+cl = cutree(hc, k = 5)
+fviz_cluster(list(data = data2, cluster = cl), geom = "point")
+```
+
+We plot the dendogram:
+```{r}
+fviz_dend(hc, k=5)
+```
+
+Finally we plot the cluster assignment with the PCs scores:
+```{r}
+PCs = prcomp(data2)
+fviz_pca_biplot(PCs, geom = "text", habillage = as.numeric(cl))
+```
+
+
